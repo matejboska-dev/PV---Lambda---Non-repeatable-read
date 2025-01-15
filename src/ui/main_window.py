@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         self.products_tab = ProductsTab(self.db, self)  
         self.categories_tab = CategoriesTab(self.db)
         self.orders_tab = OrdersTab(self.db)
-        self.settings_tab = SettingsTab(self.db)
+        self.settings_tab = SettingsTab(self.db, self) 
         
         # Přidání záložek do TabWidget
         self.tabs.addTab(self.products_tab, "Produkty")
