@@ -7,15 +7,56 @@ import csv
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
+# ui/tabs/settings_tab.py
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
+                           QPushButton, QLabel, QComboBox,
+                           QFileDialog, QMessageBox, QGroupBox)
+import json
+import os
+
 class SettingsTab(QWidget):
     def __init__(self, db, main_window):
         super().__init__()
         self.db = db
         self.main_window = main_window
+        self.settings_file = "settings.json"
         self.init_ui()
+        self.load_settings()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+
+        # Sekce pro izolační úrovně transakcí
+        isolation_group = QGroupBox("Nastavení izolační úrovně transakcí")
+        isolation_layout = QVBoxLayout()
+
+        # ComboBox pro výběr izolační úrovně
+        self.isolation_label = QLabel("Výchozí izolační úroveň:")
+        self.isolation_combo = QComboBox()
+        self.isolation_combo.addItems([
+            "READ UNCOMMITTED",
+            "READ COMMITTED",
+            "REPEATABLE READ",
+            "SERIALIZABLE"
+        ])
+        self.isolation_combo.currentTextChanged.connect(self.change_isolation_level)
+
+        # Přidání vysvětlujícího textu
+        self.explanation_label = QLabel()
+        self.update_explanation()
+        self.isolation_combo.currentTextChanged.connect(self.update_explanation)
+
+        isolation_layout.addWidget(self.isolation_label)
+        isolation_layout.addWidget(self.isolation_combo)
+        isolation_layout.addWidget(self.explanation_label)
+        isolation_group.setLayout(isolation_layout)
+        layout.addWidget(isolation_group)
+
+        # Tlačítko pro uložení nastavení
+        save_btn = QPushButton("Uložit nastavení")
+        save_btn.clicked.connect(self.save_settings)
+        layout.addWidget(save_btn)
+
         
         # Sekce pro import
         import_group = QVBoxLayout()
@@ -51,6 +92,7 @@ class SettingsTab(QWidget):
         
         layout.addLayout(export_group)
         layout.addStretch()
+
 
     def import_data(self, data_type):
         file_name, _ = QFileDialog.getOpenFileName(
@@ -283,3 +325,80 @@ class SettingsTab(QWidget):
         
         tree = ET.ElementTree(root)
         tree.write(file_name, encoding='utf-8', xml_declaration=True)
+        
+    def update_explanation(self):
+        """Aktualizuje vysvětlující text podle vybrané izolační úrovně"""
+        explanations = {
+            "READ UNCOMMITTED": """
+                Nejnižší úroveň izolace.
+                - Umožňuje čtení nezapsaných změn
+                - Může způsobit 'špinavé čtení'
+                - Vhodné pouze pro nekritické operace
+            """,
+            "READ COMMITTED": """
+                Standardní úroveň izolace.
+                - Zabraňuje 'špinavému čtení'
+                - Může dojít k neopakovatelnému čtení
+                - Vhodné pro běžné operace
+            """,
+            "REPEATABLE READ": """
+                Vyšší úroveň izolace.
+                - Zabraňuje neopakovatelnému čtení
+                - Stejná data při opakovaném čtení
+                - Vhodné pro důležité transakce
+            """,
+            "SERIALIZABLE": """
+                Nejvyšší úroveň izolace.
+                - Plně sériové zpracování
+                - Nejbezpečnější, ale nejpomalejší
+                - Vhodné pro kritické transakce
+            """
+        }
+        current_level = self.isolation_combo.currentText()
+        self.explanation_label.setText(explanations[current_level])
+
+    def change_isolation_level(self, level):
+        """Změní izolační úroveň v databázi"""
+        try:
+            cursor = self.db.connection.cursor()
+            cursor.execute(f"SET TRANSACTION ISOLATION LEVEL {level}")
+            self.main_window.status_bar.showMessage(f"Izolační úroveň nastavena na: {level}")
+        except Exception as e:
+            QMessageBox.critical(self, "Chyba", f"Nelze změnit izolační úroveň: {str(e)}")
+
+    def load_settings(self):
+        """Načte uložené nastavení"""
+        try:
+            if os.path.exists(self.settings_file):
+                with open(self.settings_file, 'r') as f:
+                    settings = json.load(f)
+                    # Nastavení izolační úrovně
+                    isolation_level = settings.get('isolation_level', 'READ COMMITTED')
+                    self.isolation_combo.setCurrentText(isolation_level)
+                    self.change_isolation_level(isolation_level)
+        except Exception as e:
+            QMessageBox.warning(self, "Varování", f"Nelze načíst nastavení: {str(e)}")
+
+    def save_settings(self):
+        """Uloží aktuální nastavení"""
+        try:
+            settings = {
+                'isolation_level': self.isolation_combo.currentText()
+            }
+            with open(self.settings_file, 'w') as f:
+                json.dump(settings, f)
+            self.main_window.status_bar.showMessage("Nastavení bylo uloženo")
+            
+            # Přidáme popup s potvrzením
+            QMessageBox.information(
+                self,
+                "Úspěch",
+                "Nastavení bylo úspěšně uloženo!\n\nIzolační úroveň: " + self.isolation_combo.currentText()
+            )
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Chyba", f"Nelze uložit nastavení: {str(e)}")    
+
+    def get_current_isolation_level(self):
+        """Vrátí aktuální izolační úroveň"""
+        return self.isolation_combo.currentText()

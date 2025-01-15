@@ -2,8 +2,9 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
                            QPushButton, QTableWidget, QTableWidgetItem,
                            QMessageBox, QDialog, QComboBox, QLabel)
-from PyQt6.QtCore import Qt, QTimer
-from ui.dialogs.product_dialog import ProductDialog  
+from PyQt6.QtCore import Qt
+from ui.dialogs.product_dialog import ProductDialog
+from ui.dialogs.demo_dialog import DemoDialog  
 
 class ProductsTab(QWidget):
     def __init__(self, db, main_window):
@@ -73,7 +74,16 @@ class ProductsTab(QWidget):
             QMessageBox.critical(self, "Chyba", f"Nelze změnit izolační úroveň: {str(e)}")
 
     def demonstrate_non_repeatable_reads(self):
-        """Demonstrace problému Non-repeatable reads"""
+        # Zobrazíme instrukce uživateli
+        QMessageBox.information(self, "Instrukce pro demonstraci", 
+            """Pro demonstraci Non-repeatable reads:
+            1. Otevřete si druhou instanci této aplikace v novém okně
+            2. V této instanci klikněte OK - spustí se první čtení
+            3. V druhé instanci změňte množství produktu
+            4. V této instanci klikněte OK pro druhé čtení
+            """)
+
+        # První čtení
         selected = self.table.selectedItems()
         if not selected:
             QMessageBox.warning(self, "Varování", "Vyberte produkt pro demonstraci")
@@ -82,50 +92,37 @@ class ProductsTab(QWidget):
         row = selected[0].row()
         product_id = int(self.table.item(row, 0).text())
         
-        try:
-            # První čtení
-            cursor = self.db.connection.cursor()
-            cursor.execute("SELECT Name, StockQuantity FROM Products WHERE ProductID = ?", 
-                         (product_id,))
-            first_read = cursor.fetchone()
+        cursor = self.db.connection.cursor()
+        
+        # První čtení
+        cursor.execute("SELECT Name, StockQuantity FROM Products WHERE ProductID = ?", 
+                    (product_id,))
+        first_read = cursor.fetchone()
+        
+        QMessageBox.information(self, "První čtení", 
+            f"""Stav produktu:
+            Název: {first_read[0]}
+            Množství: {first_read[1]}
             
-            if not first_read:
-                return
-                
-            msg = QMessageBox()
-            msg.setWindowTitle("Demonstrace Non-repeatable reads")
-            msg.setText(f"První čtení:\nProdukt: {first_read[0]}\nMnožství: {first_read[1]}")
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
+            Nyní v druhé instanci aplikace změňte množství tohoto produktu
+            a pak klikněte OK pro druhé čtení.""")
+        
+        # Druhé čtení
+        cursor.execute("SELECT Name, StockQuantity FROM Products WHERE ProductID = ?", 
+                    (product_id,))
+        second_read = cursor.fetchone()
+        
+        QMessageBox.information(self, "Výsledek", 
+            f"""První čtení:
+            Množství: {first_read[1]}
             
-            # Simulace změny dat v jiné transakci
-            update_cursor = self.db.connection.cursor()
-            update_cursor.execute("""
-                UPDATE Products 
-                SET StockQuantity = StockQuantity - 1
-                WHERE ProductID = ?
-            """, (product_id,))
-            update_cursor.commit()
+            Druhé čtení:
+            Množství: {second_read[1]}
             
-            # Druhé čtení ve stejné transakci
-            cursor.execute("SELECT Name, StockQuantity FROM Products WHERE ProductID = ?", 
-                         (product_id,))
-            second_read = cursor.fetchone()
-            
-            msg = QMessageBox()
-            msg.setWindowTitle("Demonstrace Non-repeatable reads")
-            msg.setText(f"Druhé čtení:\nProdukt: {second_read[0]}\nMnožství: {second_read[1]}\n\n"
-                       f"Při izolační úrovni {self.isolation_combo.currentText()}:\n"
-                       f"{'Data se změnila mezi čteními!' if first_read[1] != second_read[1] else 'Data zůstala konzistentní.'}")
-            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-            msg.exec()
-            
-            cursor.commit()
-            self.load_data()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Chyba", f"Chyba při demonstraci: {str(e)}")
-            cursor.rollback()
+            {'-' * 30}
+            Izolační úroveň: {self.main_window.settings_tab.get_current_isolation_level()}
+            {'Došlo k Non-repeatable read!' if first_read[1] != second_read[1] else 'Data zůstala konzistentní'}""")
+        
     def load_data(self):
         try:
             headers = ['ID', 'Kategorie', 'Název', 'Cena', 'Množství', 'Status']

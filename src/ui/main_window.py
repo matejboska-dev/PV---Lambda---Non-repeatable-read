@@ -1,5 +1,6 @@
 # ui/main_window.py
-from PyQt6.QtWidgets import QMainWindow, QWidget, QTabWidget, QVBoxLayout, QStatusBar
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QTabWidget, 
+                           QVBoxLayout, QStatusBar, QMessageBox)
 from .tabs.products_tab import ProductsTab
 from .tabs.categories_tab import CategoriesTab
 from .tabs.orders_tab import OrdersTab
@@ -9,6 +10,11 @@ class MainWindow(QMainWindow):
     def __init__(self, db):
         super().__init__()
         self.db = db
+        # Inicializace status baru musí být před init_ui
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Připraven")
+        
         self.init_ui()
         self.load_all_data()
 
@@ -25,10 +31,19 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         
         # Inicializace jednotlivých záložek
-        self.products_tab = ProductsTab(self.db, self)  
+        self.products_tab = ProductsTab(self.db, self)
         self.categories_tab = CategoriesTab(self.db)
         self.orders_tab = OrdersTab(self.db)
-        self.settings_tab = SettingsTab(self.db, self) 
+        
+        # Načtení a aplikace výchozí izolační úrovně
+        self.settings_tab = SettingsTab(self.db, self)
+        try:
+            isolation_level = self.settings_tab.get_current_isolation_level()
+            cursor = self.db.connection.cursor()
+            cursor.execute(f"SET TRANSACTION ISOLATION LEVEL {isolation_level}")
+        except Exception as e:
+            QMessageBox.warning(self, "Varování", 
+                              f"Nelze nastavit výchozí izolační úroveň: {str(e)}")
         
         # Přidání záložek do TabWidget
         self.tabs.addTab(self.products_tab, "Produkty")
@@ -37,11 +52,6 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.settings_tab, "Nastavení")
         
         layout.addWidget(self.tabs)
-        
-        # Status bar
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Připraven")
 
     def load_all_data(self):
         """Načte data do všech tabulek"""
