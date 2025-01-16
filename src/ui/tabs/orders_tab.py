@@ -6,9 +6,10 @@ from PyQt6.QtCore import Qt
 from ui.dialogs.order_dialog import OrderDialog
 
 class OrdersTab(QWidget):
-    def __init__(self, db):
+    def __init__(self, db, main_window):  # Přidáme main_window parametr
         super().__init__()
         self.db = db
+        self.main_window = main_window  # Uložíme referenci na hlavní okno
         self.init_ui()
 
     def init_ui(self):
@@ -37,6 +38,52 @@ class OrdersTab(QWidget):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.table)
+
+    def add_order(self):
+        dialog = OrderDialog(self.db, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.load_data()
+            self.main_window.status_bar.showMessage("Objednávka byla vytvořena")
+
+    def view_order(self):
+        selected = self.table.selectedItems()
+        if not selected:
+            QMessageBox.warning(self, "Varování", "Vyberte objednávku k zobrazení")
+            return
+            
+        order_id = int(self.table.item(selected[0].row(), 0).text())
+        dialog = OrderDialog(self.db, order_id, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.load_data()
+            self.main_window.status_bar.showMessage("Objednávka byla upravena")
+
+    def delete_order(self):
+        selected = self.table.selectedItems()
+        if not selected:
+            QMessageBox.warning(self, "Varování", "Vyberte objednávku ke smazání")
+            return
+            
+        order_id = int(self.table.item(selected[0].row(), 0).text())
+        
+        reply = QMessageBox.question(self, "Potvrdit smazání",
+                                   "Opravdu chcete smazat tuto objednávku?",
+                                   QMessageBox.StandardButton.Yes | 
+                                   QMessageBox.StandardButton.No)
+                                   
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                cursor = self.db.connection.cursor()
+                # Nejdřív smažeme položky objednávky
+                cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (order_id,))
+                # Potom smažeme samotnou objednávku
+                cursor.execute("DELETE FROM Orders WHERE OrderID = ?", (order_id,))
+                
+                self.db.connection.commit()
+                self.load_data()
+                self.main_window.status_bar.showMessage("Objednávka byla smazána")
+            except Exception as e:
+                self.db.connection.rollback()
+                QMessageBox.critical(self, "Chyba", f"Nelze smazat objednávku: {str(e)}")
 
     def load_data(self):
         try:
@@ -75,55 +122,3 @@ class OrdersTab(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "Chyba", f"Nepodařilo se načíst objednávky: {str(e)}")
             return False
-
-    def add_order(self):
-        dialog = OrderDialog(self.db, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.load_data()
-            self.parent().status_bar.showMessage("Objednávka byla vytvořena")
-
-    def view_order(self):
-        selected = self.table.selectedItems()
-        if not selected:
-            QMessageBox.warning(self, "Varování", "Vyberte objednávku k zobrazení")
-            return
-            
-        order_id = int(self.table.item(selected[0].row(), 0).text())
-        dialog = OrderDialog(self.db, order_id, parent=self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.load_data()
-            self.parent().status_bar.showMessage("Objednávka byla upravena")
-
-    def delete_order(self):
-        selected = self.table.selectedItems()
-        if not selected:
-            QMessageBox.warning(self, "Varování", "Vyberte objednávku ke smazání")
-            return
-            
-        order_id = int(self.table.item(selected[0].row(), 0).text())
-        
-        reply = QMessageBox.question(self, "Potvrdit smazání",
-                                   "Opravdu chcete smazat tuto objednávku?",
-                                   QMessageBox.StandardButton.Yes | 
-                                   QMessageBox.StandardButton.No)
-                                   
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                cursor = self.db.connection.cursor()
-                
-                # Nejdříve smažeme položky objednávky
-                cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (order_id,))
-                
-                # Potom smažeme samotnou objednávku
-                cursor.execute("DELETE FROM Orders WHERE OrderID = ?", (order_id,))
-                
-                self.db.connection.commit()
-                self.load_data()
-                self.parent().status_bar.showMessage("Objednávka byla smazána")
-            except Exception as e:
-                self.db.connection.rollback()
-                QMessageBox.critical(self, "Chyba", f"Nelze smazat objednávku: {str(e)}")
-
-    def refresh_data(self):
-        """Obnoví data v tabulce"""
-        self.load_data()

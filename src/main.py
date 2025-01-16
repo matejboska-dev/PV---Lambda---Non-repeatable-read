@@ -7,7 +7,7 @@ from database import Database
 def main():
     app = QApplication(sys.argv)
     db = Database()
-    
+        
     try:
         if not db.connect():
             raise Exception("Nepodařilo se připojit k databázi")

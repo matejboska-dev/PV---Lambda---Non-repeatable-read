@@ -3,12 +3,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                            QPushButton, QTableWidget, QTableWidgetItem,
                            QMessageBox, QDialog)
 from PyQt6.QtCore import Qt
-from ..dialogs.category_dialog import CategoryDialog
+from ui.dialogs.category_dialog import CategoryDialog
 
 class CategoriesTab(QWidget):
-    def __init__(self, db):
+    def __init__(self, db, main_window):  # Přidáme main_window parametr
         super().__init__()
         self.db = db
+        self.main_window = main_window  # Uložíme referenci na hlavní okno
         self.init_ui()
 
     def init_ui(self):
@@ -38,41 +39,11 @@ class CategoriesTab(QWidget):
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.table)
 
-    def load_data(self):
-        try:
-            # Nastavení sloupců
-            headers = ['ID', 'Název', 'Popis', 'Aktivní']
-            self.table.setColumnCount(len(headers))
-            self.table.setHorizontalHeaderLabels(headers)
-
-            # Získání dat z databáze
-            cursor = self.db.connection.cursor()
-            cursor.execute("SELECT CategoryID, Name, Description, IsActive FROM Categories")
-            
-            # Naplnění tabulky
-            data = cursor.fetchall()
-            self.table.setRowCount(len(data))
-            
-            for row, item in enumerate(data):
-                for col, value in enumerate(item):
-                    if col == 3:  # IsActive
-                        value = "Ano" if value else "Ne"
-                    table_item = QTableWidgetItem(str(value))
-                    table_item.setFlags(table_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    self.table.setItem(row, col, table_item)
-
-            self.table.resizeColumnsToContents()
-            return True
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Chyba", f"Nepodařilo se načíst kategorie: {str(e)}")
-            return False
-
     def add_category(self):
         dialog = CategoryDialog(self.db, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
-            self.parent().status_bar.showMessage("Kategorie byla přidána")
+            self.main_window.status_bar.showMessage("Kategorie byla přidána")
 
     def edit_category(self):
         selected = self.table.selectedItems()
@@ -84,7 +55,7 @@ class CategoriesTab(QWidget):
         dialog = CategoryDialog(self.db, category_id, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.load_data()
-            self.parent().status_bar.showMessage("Kategorie byla upravena")
+            self.main_window.status_bar.showMessage("Kategorie byla upravena")
 
     def delete_category(self):
         selected = self.table.selectedItems()
@@ -114,7 +85,34 @@ class CategoriesTab(QWidget):
                              (category_id,))
                 self.db.connection.commit()
                 self.load_data()
-                self.parent().status_bar.showMessage("Kategorie byla smazána")
+                self.main_window.status_bar.showMessage("Kategorie byla smazána")
             except Exception as e:
                 QMessageBox.critical(self, "Chyba", 
                                    f"Nelze smazat kategorii: {str(e)}")
+
+    def load_data(self):
+        try:
+            headers = ['ID', 'Název', 'Popis', 'Aktivní']
+            self.table.setColumnCount(len(headers))
+            self.table.setHorizontalHeaderLabels(headers)
+
+            cursor = self.db.connection.cursor()
+            cursor.execute("SELECT CategoryID, Name, Description, IsActive FROM Categories")
+            
+            data = cursor.fetchall()
+            self.table.setRowCount(len(data))
+            
+            for row, item in enumerate(data):
+                for col, value in enumerate(item):
+                    if col == 3:  # IsActive
+                        value = "Ano" if value else "Ne"
+                    table_item = QTableWidgetItem(str(value))
+                    table_item.setFlags(table_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    self.table.setItem(row, col, table_item)
+
+            self.table.resizeColumnsToContents()
+            return True
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Chyba", f"Nepodařilo se načíst kategorie: {str(e)}")
+            return False
