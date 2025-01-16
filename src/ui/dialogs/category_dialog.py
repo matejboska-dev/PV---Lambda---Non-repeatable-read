@@ -57,12 +57,17 @@ class CategoryDialog(QDialog):
             self.active_check.setChecked(data[2])
 
     def save_category(self):
+        """Uloží nebo upraví kategorii s použitím transakce"""
         try:
+            # Získání hodnot před transakcí
             name = self.name_edit.text()
             description = self.description_edit.toPlainText()
             is_active = self.active_check.isChecked()
 
             cursor = self.db.connection.cursor()
+            
+            # Začátek transakce
+            cursor.execute("BEGIN TRANSACTION")
             
             if self.category:  # Úprava existující kategorie
                 cursor.execute("""
@@ -76,8 +81,11 @@ class CategoryDialog(QDialog):
                     VALUES (?, ?, ?)
                 """, (name, description, is_active))
             
+            # Potvrzení transakce
             self.db.connection.commit()
             self.accept()
             
         except Exception as e:
+            # Rollback v případě chyby
+            self.db.connection.rollback()
             QMessageBox.critical(self, "Chyba", f"Nelze uložit kategorii: {str(e)}")

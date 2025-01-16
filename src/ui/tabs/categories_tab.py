@@ -58,38 +58,53 @@ class CategoriesTab(QWidget):
             self.main_window.status_bar.showMessage("Kategorie byla upravena")
 
     def delete_category(self):
+        """Smaže kategorii s použitím transakce"""
         selected = self.table.selectedItems()
         if not selected:
             QMessageBox.warning(self, "Varování", "Vyberte kategorii ke smazání")
             return
-            
+                
         category_id = int(self.table.item(selected[0].row(), 0).text())
         
-        # Kontrola, zda kategorie neobsahuje produkty
-        cursor = self.db.connection.cursor()
-        cursor.execute("SELECT COUNT(*) FROM Products WHERE CategoryID = ?", (category_id,))
-        if cursor.fetchone()[0] > 0:
-            QMessageBox.warning(self, "Varování", 
-                              "Nelze smazat kategorii, která obsahuje produkty")
-            return
-        
-        reply = QMessageBox.question(self, "Potvrdit smazání",
-                                   "Opravdu chcete smazat tuto kategorii?",
-                                   QMessageBox.StandardButton.Yes | 
-                                   QMessageBox.StandardButton.No)
-                                   
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                cursor = self.db.connection.cursor()
-                cursor.execute("DELETE FROM Categories WHERE CategoryID = ?", 
-                             (category_id,))
-                self.db.connection.commit()
-                self.load_data()
-                self.main_window.status_bar.showMessage("Kategorie byla smazána")
-            except Exception as e:
-                QMessageBox.critical(self, "Chyba", 
-                                   f"Nelze smazat kategorii: {str(e)}")
-
+        try:
+            cursor = self.db.connection.cursor()
+            
+            # Kontrola, zda kategorie neobsahuje produkty
+            cursor.execute("SELECT COUNT(*) FROM Products WHERE CategoryID = ?", (category_id,))
+            if cursor.fetchone()[0] > 0:
+                QMessageBox.warning(self, "Varování", 
+                                "Nelze smazat kategorii, která obsahuje produkty. " +
+                                "Nejprve přesuňte nebo smažte všechny produkty v této kategorii.")
+                return
+            
+            reply = QMessageBox.question(self, "Potvrdit smazání",
+                                    "Opravdu chcete smazat tuto kategorii?",
+                                    QMessageBox.StandardButton.Yes | 
+                                    QMessageBox.StandardButton.No)
+                                    
+            if reply == QMessageBox.StandardButton.Yes:
+                # Začátek transakce
+                cursor.execute("BEGIN TRANSACTION")
+                try:
+                    # Smazání kategorie
+                    cursor.execute("DELETE FROM Categories WHERE CategoryID = ?", 
+                                (category_id,))
+                    
+                    # Potvrzení transakce
+                    self.db.connection.commit()
+                    
+                    # Aktualizace UI
+                    self.load_data()
+                    self.main_window.status_bar.showMessage("Kategorie byla smazána")
+                    
+                except Exception as e:
+                    # Rollback v případě chyby
+                    self.db.connection.rollback()
+                    raise e
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "Chyba", 
+                            f"Nelze smazat kategorii: {str(e)}")
     def load_data(self):
         try:
             headers = ['ID', 'Název', 'Popis', 'Aktivní']

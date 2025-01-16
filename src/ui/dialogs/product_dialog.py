@@ -87,7 +87,9 @@ class ProductDialog(QDialog):
             self.status_combo.setCurrentText(data[4])
 
     def save_product(self):
+        """Uloží nebo upraví produkt s použitím transakce"""
         try:
+            # Získání hodnot před transakcí
             name = self.name_edit.text()
             category_id = self.categories[self.category_combo.currentText()]
             price = self.price_spin.value()
@@ -95,6 +97,9 @@ class ProductDialog(QDialog):
             status = self.status_combo.currentText()
 
             cursor = self.db.connection.cursor()
+            
+            # Začátek transakce
+            cursor.execute("BEGIN TRANSACTION")
             
             if self.product:  # Úprava existujícího produktu
                 cursor.execute("""
@@ -109,8 +114,11 @@ class ProductDialog(QDialog):
                     VALUES (?, ?, ?, ?, ?)
                 """, (name, category_id, price, quantity, status))
             
+            # Potvrzení transakce
             self.db.connection.commit()
             self.accept()
             
         except Exception as e:
+            # Rollback v případě chyby
+            self.db.connection.rollback()
             QMessageBox.critical(self, "Chyba", f"Nelze uložit produkt: {str(e)}")

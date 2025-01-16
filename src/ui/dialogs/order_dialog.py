@@ -129,47 +129,69 @@ class OrderDialog(QDialog):
         self.total_label.setText(f"Celková cena: {total:.2f} Kč")
 
     def save_order(self):
+        """Uloží nebo upraví objednávku a její položky s použitím transakce"""
         try:
             if self.items_table.rowCount() == 0:
                 QMessageBox.warning(self, "Varování", "Objednávka musí obsahovat alespoň jednu položku")
                 return
 
+            # Získání hodnot před transakcí
             customer_id = self.customers[self.customer_combo.currentText()]
             status = self.status_combo.currentText()
-            total = float(self.total_label.text().split(":")[1].replace(" Kč", ""))
+            total = float(self.total_label.text().split(":")[1].replace(" Kč", "").strip())
 
             cursor = self.db.connection.cursor()
             
-            if self.order:  # Úprava existující objednávky
-                cursor.execute("""
-                    UPDATE Orders 
-                    SET CustomerID = ?, Status = ?, TotalAmount = ?
-                    WHERE OrderID = ?
-                """, (customer_id, status, total, self.order))
-                
-                # Smazat staré položky
-                cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (self.order,))
-            else:  # Nová objednávka
-                cursor.execute("""
-                    INSERT INTO Orders (CustomerID, Status, TotalAmount)
-                    VALUES (?, ?, ?)
-                """, (customer_id, status, total))
-                self.order = cursor.execute("SELECT @@IDENTITY").fetchone()[0]
+            # Začátek transakce
+            cursor.execute("BEGIN TRANSACTION")
 
-            # Vložit nové položky
-            for row in range(self.items_table.rowCount()):
-                product_id = int(self.items_table.item(row, 0).text())
-                quantity = self.items_table.cellWidget(row, 3).value()
-                price = float(self.items_table.item(row, 2).text().replace(" Kč", ""))
-                
-                cursor.execute("""
-                    INSERT INTO OrderItems (OrderID, ProductID, Quantity, UnitPrice)
-                    VALUES (?, ?, ?, ?)
-                """, (self.order, product_id, quantity, price))
+            try:
+                if self.order:  # Úprava existující objednávky
+                    # Update hlavičky objednávky
+                    cursor.execute("""
+                        UPDATE Orders 
+                        SET CustomerID = ?, Status = ?, TotalAmount = ?
+                        WHERE OrderID = ?
+                    """, (customer_id, status, total, self.order))
+                    
+                    # Smazání starých položek
+                    cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (self.order,))
+                else:  # Nová objednávka
+                    # Vložení hlavičky objednávky
+                    cursor.execute("""
+                        INSERT INTO Orders (CustomerID, Status, TotalAmount)
+                        VALUES (?, ?, ?)
+                    """, (customer_id, status, total))
+                    self.order = cursor.execute("SELECT @@IDENTITY").fetchone()[0]
 
-            self.db.connection.commit()
-            self.accept()
-            
+                # Vložení nových položek
+                for row in range(self.items_table.rowCount()):
+                    product_id = int(self.items_table.item(row, 0).text())
+                    quantity = self.items_table.cellWidget(row, 3).value()
+                    price = float(self.items_table.item(row, 2).text().replace(" Kč", ""))
+                    
+                    # Aktualizace množství produktu na skladě
+                    cursor.execute("""
+                        UPDATE Products 
+                        SET StockQuantity = StockQuantity - ?
+                        WHERE ProductID = ?
+                    """, (quantity, product_id))
+                    
+                    # Vložení položky objednávky
+                    cursor.execute("""
+                        INSERT INTO OrderItems (OrderID, ProductID, Quantity, UnitPrice)
+                        VALUES (?, ?, ?, ?)
+                    """, (self.order, product_id, quantity, price))
+
+                # Potvrzení transakce
+                self.db.connection.commit()
+                self.accept()
+                
+            except Exception as e:
+                # Rollback v případě jakékoliv chyby při zpracování
+                self.db.connection.rollback()
+                raise e  # Propagujeme chybu do vnějšího try-except bloku
+                
         except Exception as e:
             QMessageBox.critical(self, "Chyba", f"Nelze uložit objednávku: {str(e)}")
 

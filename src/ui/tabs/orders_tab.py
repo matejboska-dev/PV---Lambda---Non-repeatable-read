@@ -58,32 +58,73 @@ class OrdersTab(QWidget):
             self.main_window.status_bar.showMessage("Objednávka byla upravena")
 
     def delete_order(self):
+        """Smaže objednávku a její položky s použitím transakce"""
         selected = self.table.selectedItems()
         if not selected:
             QMessageBox.warning(self, "Varování", "Vyberte objednávku ke smazání")
             return
-            
+                
         order_id = int(self.table.item(selected[0].row(), 0).text())
         
-        reply = QMessageBox.question(self, "Potvrdit smazání",
-                                   "Opravdu chcete smazat tuto objednávku?",
-                                   QMessageBox.StandardButton.Yes | 
-                                   QMessageBox.StandardButton.No)
-                                   
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                cursor = self.db.connection.cursor()
-                # Nejdřív smažeme položky objednávky
-                cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (order_id,))
-                # Potom smažeme samotnou objednávku
-                cursor.execute("DELETE FROM Orders WHERE OrderID = ?", (order_id,))
-                
-                self.db.connection.commit()
-                self.load_data()
-                self.main_window.status_bar.showMessage("Objednávka byla smazána")
-            except Exception as e:
-                self.db.connection.rollback()
-                QMessageBox.critical(self, "Chyba", f"Nelze smazat objednávku: {str(e)}")
+        try:
+            cursor = self.db.connection.cursor()
+            
+            # Nejprve získáme informace o položkách objednávky pro případné vrácení na sklad
+            cursor.execute("""
+                SELECT ProductID, Quantity 
+                FROM OrderItems 
+                WHERE OrderID = ?
+            """, (order_id,))
+            order_items = cursor.fetchall()
+            
+            reply = QMessageBox.question(
+                self, 
+                "Potvrdit smazání",
+                "Opravdu chcete smazat tuto objednávku? \n\n"
+                "Budou smazány všechny položky objednávky a množství produktů "
+                "bude vráceno na sklad.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+                                
+            if reply == QMessageBox.StandardButton.Yes:
+                # Začátek transakce
+                cursor.execute("BEGIN TRANSACTION")
+                try:
+                    # Vrátíme množství produktů na sklad
+                    for product_id, quantity in order_items:
+                        cursor.execute("""
+                            UPDATE Products 
+                            SET StockQuantity = StockQuantity + ?
+                            WHERE ProductID = ?
+                        """, (quantity, product_id))
+                    
+                    # Nejprve smažeme položky objednávky (kvůli cizímu klíči)
+                    cursor.execute("DELETE FROM OrderItems WHERE OrderID = ?", (order_id,))
+                    
+                    # Potom smažeme samotnou objednávku
+                    cursor.execute("DELETE FROM Orders WHERE OrderID = ?", (order_id,))
+                    
+                    # Potvrzení transakce
+                    self.db.connection.commit()
+                    
+                    # Aktualizace UI
+                    self.load_data()
+                    self.main_window.status_bar.showMessage(
+                        f"Objednávka byla smazána a množství produktů bylo vráceno na sklad"
+                    )
+                    
+                except Exception as e:
+                    # Rollback v případě chyby
+                    self.db.connection.rollback()
+                    raise e
+                    
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Chyba", 
+                f"Nelze smazat objednávku: {str(e)}\n\n"
+                "Všechny změny byly vráceny zpět."
+            )
 
     def load_data(self):
         try:
